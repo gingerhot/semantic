@@ -29,6 +29,7 @@ import           Semantic.Env
 import           Semantic.Telemetry
 import qualified Semantic.Telemetry.Error as Error
 import qualified Semantic.Telemetry.Stat as Stat
+import           Semantic.Version (buildSHA)
 import           System.Environment
 import           System.IO (hIsTerminalDevice, stdout)
 import           System.Posix.Process
@@ -52,7 +53,7 @@ data Config
   , configIsTerminal             :: Flag IsTerminal      -- ^ Whether a terminal is attached (set automaticaly at runtime).
   , configLogPrintSource         :: Flag LogPrintSource  -- ^ Whether to print the source reference when logging errors (set automatically at runtime).
   , configLogFormatter           :: LogFormatter         -- ^ Log formatter to use (set automatically at runtime).
-  , configSHA                    :: Maybe String         -- ^ Optional SHA to include in log messages.
+  , configSHA                    :: String               -- ^ SHA to include in log messages (set automatically).
   , configFailParsingForTesting  :: Flag FailTestParsing -- ^ Simulate internal parse failure for testing (default: False).
   , configOptions                :: Options              -- ^ Options configurable via command line arguments.
   }
@@ -61,12 +62,13 @@ data Config
 data Options
   = Options
   { optionsLogLevel         :: Maybe Level           -- ^ What level of messages to log. 'Nothing' disables logging.
+  , optionsLogPathsOnError  :: Bool                  -- ^ Should semantic log source path on parse or assignment errors (default: False).
   , optionsFailOnWarning    :: Flag FailOnWarning    -- ^ Should semantic fail fast on assignment warnings (for testing)
   , optionsFailOnParseError :: Flag FailOnParseError -- ^ Should semantic fail fast on tree-sitter parser errors (for testing)
   }
 
 defaultOptions :: Options
-defaultOptions = Options (Just Warning) (flag FailOnWarning False) (flag FailOnParseError False)
+defaultOptions = Options (Just Warning) False (flag FailOnWarning False) (flag FailOnParseError False)
 
 debugOptions :: Options
 debugOptions = defaultOptions { optionsLogLevel = Just Debug }
@@ -96,7 +98,7 @@ defaultConfig options@Options{..} = do
     , configIsTerminal = flag IsTerminal isTerminal
     , configLogPrintSource = flag LogPrintSource isTerminal
     , configLogFormatter = if isTerminal then terminalFormatter else logfmtFormatter
-    , configSHA = Nothing
+    , configSHA = buildSHA
     , configFailParsingForTesting = flag FailTestParsing False
 
     , configOptions = options
@@ -120,7 +122,7 @@ logOptionsFromConfig Config{..} = LogOptions
           | otherwise = [ ("app", configAppName)
                         , ("pid", show configProcessID)
                         , ("hostname", configHostName)
-                        , ("sha", fromMaybe "development" configSHA)
+                        , ("sha", configSHA)
                         ]
 
 
