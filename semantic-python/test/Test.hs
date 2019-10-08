@@ -34,7 +34,6 @@ import qualified Streaming.Prelude as Stream
 import qualified Streaming.Process
 import           System.Directory
 import           System.Exit
-import qualified TreeSitter.Span as TS (Span)
 import qualified TreeSitter.Python as TSP
 import qualified TreeSitter.Python.AST as TSP
 import qualified TreeSitter.Unmarshal as TS
@@ -57,7 +56,6 @@ assertJQExpressionSucceeds directive tree core = do
     (heap, [File _ (Right result)]) -> pure $ Aeson.object
       [ "scope" Aeson..= heap
       , "heap"  Aeson..= result
-      , "tree"  Aeson..= Aeson.toJSON1 core
       ]
     _other                       -> HUnit.assertFailure "Couldn't run scope dumping mechanism; this shouldn't happen"
 
@@ -100,7 +98,7 @@ fixtureTestTreeForFile fp = HUnit.testCaseSteps (Path.toString fp) $ \step -> wi
                    . runFail
                    . runReader (fromString @Py.SourcePath . Path.toString $ fp)
                    . runReader @Py.Bindings mempty
-                   . Py.compile @(TSP.Module TS.Span) @_ @(Term (Ann :+: Core))
+                   . Py.compile @TSP.Module @_ @(Term (Ann :+: Core))
                    <$> result
 
   for_ directives $ \directive -> do

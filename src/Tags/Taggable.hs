@@ -29,7 +29,6 @@ import Analysis.ConstructorName
 import Analysis.HasTextElement
 import Data.Abstract.Declarations
 import Data.Abstract.Name
-import Data.Blob
 import Data.Language
 import Data.Term
 import Data.Text hiding (empty)
@@ -48,14 +47,14 @@ import qualified Language.TypeScript.Syntax as TypeScript
 
  -- TODO: Move to src/Data
 data Token
-  = Enter { tokenName :: Text, tokenSnippetRange :: Maybe Range }
-  | Exit  { tokenName :: Text, tokenSnippetRange :: Maybe Range}
+  = Enter { tokenName :: Text, tokenSnippetRange :: Range }
+  | Exit  { tokenName :: Text, tokenSnippetRange :: Range}
   | Iden  { identifierName :: Text, tokenSpan :: Span, docsLiteralRange :: Maybe Range }
   deriving (Eq, Show)
 
 type Tagger = Stream (Of Token)
 
-enter, exit :: Monad m => String -> Maybe Range -> Tagger m ()
+enter, exit :: Monad m => String -> Range -> Tagger m ()
 enter c = yield . Enter (pack c)
 exit c = yield . Exit (pack c)
 
@@ -69,7 +68,7 @@ class Taggable constr where
     )
     => Language -> constr (Term syntax Loc) -> Maybe Range
 
-  snippet :: Foldable syntax => Loc -> constr (Term syntax Loc) -> Maybe Range
+  snippet :: Foldable syntax => Loc -> constr (Term syntax Loc) -> Range
 
   symbolName :: Declarations1 syntax => constr (Term syntax Loc) -> Maybe Name
 
@@ -83,8 +82,8 @@ class TaggableBy (strategy :: Strategy) constr where
     => Language -> constr (Term syntax Loc) -> Maybe Range
   docsLiteral' _ _ = Nothing
 
-  snippet' :: (Foldable syntax) => Loc -> constr (Term syntax Loc) -> Maybe Range
-  snippet' _ _ = Nothing
+  snippet' :: (Foldable syntax) => Loc -> constr (Term syntax Loc) -> Range
+  snippet' ann _ = byteRange ann
 
   symbolName' :: Declarations1 syntax => constr (Term syntax Loc) -> Maybe Name
   symbolName' _ = Nothing
@@ -99,10 +98,10 @@ type IsTaggable syntax =
   )
 
 tagging :: (Monad m, IsTaggable syntax)
-        => Blob
+        => Language
         -> Term syntax Loc
         -> Stream (Of Token) m ()
-tagging b = foldSubterms (descend (blobLanguage b))
+tagging = foldSubterms . descend
 
 descend ::
   ( ConstructorName (TermF syntax Loc)
@@ -157,7 +156,7 @@ instance Taggable a => TaggableBy 'Custom (TermF a Loc) where
   symbolName' t = symbolName (termFOut t)
 
 instance TaggableBy 'Custom Syntax.Context where
-  snippet' ann (Syntax.Context _ (Term (In subj _))) = Just (subtractLoc ann subj)
+  snippet' ann (Syntax.Context _ (Term (In subj _))) = subtractLoc ann subj
 
 instance TaggableBy 'Custom Declaration.Function where
   docsLiteral' Python (Declaration.Function _ _ _ (Term (In _ bodyF)))
@@ -165,7 +164,7 @@ instance TaggableBy 'Custom Declaration.Function where
     , isTextElement exprF = Just (byteRange exprAnn)
     | otherwise           = Nothing
   docsLiteral' _ _         = Nothing
-  snippet' ann (Declaration.Function _ _ _ (Term (In body _))) = Just $ subtractLoc ann body
+  snippet' ann (Declaration.Function _ _ _ (Term (In body _))) = subtractLoc ann body
   symbolName' = declaredName . Declaration.functionName
 
 instance TaggableBy 'Custom Declaration.Method where
@@ -174,7 +173,7 @@ instance TaggableBy 'Custom Declaration.Method where
     , isTextElement exprF = Just (byteRange exprAnn)
     | otherwise           = Nothing
   docsLiteral' _ _         = Nothing
-  snippet' ann (Declaration.Method _ _ _ _ (Term (In body _)) _) = Just $ subtractLoc ann body
+  snippet' ann (Declaration.Method _ _ _ _ (Term (In body _)) _) = subtractLoc ann body
   symbolName' = declaredName . Declaration.methodName
 
 instance TaggableBy 'Custom Declaration.Class where
@@ -183,28 +182,28 @@ instance TaggableBy 'Custom Declaration.Class where
     , isTextElement exprF = Just (byteRange exprAnn)
     | otherwise           = Nothing
   docsLiteral' _ _         = Nothing
-  snippet' ann (Declaration.Class _ _ _ (Term (In body _))) = Just $ subtractLoc ann body
+  snippet' ann (Declaration.Class _ _ _ (Term (In body _))) = subtractLoc ann body
   symbolName' = declaredName . Declaration.classIdentifier
 
 instance TaggableBy 'Custom Ruby.Class where
-  snippet' ann (Ruby.Class _ _ (Term (In body _))) = Just $ subtractLoc ann body
+  snippet' ann (Ruby.Class _ _ (Term (In body _))) = subtractLoc ann body
   symbolName' = declaredName . Ruby.classIdentifier
 
 instance TaggableBy 'Custom Ruby.Module where
-  snippet' ann (Ruby.Module _ (Term (In body _):_)) = Just $ subtractLoc ann body
-  snippet' ann (Ruby.Module _ _)                    = Just $ byteRange ann
+  snippet' ann (Ruby.Module _ (Term (In body _):_)) = subtractLoc ann body
+  snippet' ann (Ruby.Module _ _)                    = byteRange ann
   symbolName' = declaredName . Ruby.moduleIdentifier
 
 instance TaggableBy 'Custom TypeScript.Module where
-  snippet' ann (TypeScript.Module _ (Term (In body _):_)) = Just $ subtractLoc ann body
-  snippet' ann (TypeScript.Module _ _                   ) = Just $ byteRange ann
+  snippet' ann (TypeScript.Module _ (Term (In body _):_)) = subtractLoc ann body
+  snippet' ann (TypeScript.Module _ _                   ) = byteRange ann
   symbolName' = declaredName . TypeScript.moduleIdentifier
 
 instance TaggableBy 'Custom Expression.Call where
-  snippet' ann (Expression.Call _ _ _ (Term (In body _))) = Just $ subtractLoc ann body
+  snippet' ann (Expression.Call _ _ _ (Term (In body _))) = subtractLoc ann body
   symbolName' = declaredName . Expression.callFunction
 
 instance TaggableBy 'Custom Ruby.Send where
-  snippet' ann (Ruby.Send _ _ _ (Just (Term (In body _)))) = Just $ subtractLoc ann body
-  snippet' ann _                                           = Just $ byteRange ann
+  snippet' ann (Ruby.Send _ _ _ (Just (Term (In body _)))) = subtractLoc ann body
+  snippet' ann _                                           = byteRange ann
   symbolName' Ruby.Send{..} = declaredName =<< sendSelector

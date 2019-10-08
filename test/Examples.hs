@@ -2,7 +2,9 @@
 {-# OPTIONS_GHC -O1 #-}
 module Main (main) where
 
+import           Control.Carrier.Parse.Measured
 import           Control.Effect
+import           Control.Effect.Reader
 import           Control.Exception (displayException)
 import qualified Control.Foldl as Foldl
 import           Data.Function ((&))
@@ -17,6 +19,7 @@ import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy.Char8 as BLC
 import qualified Data.ByteString.Streaming.Char8 as ByteStream
 import           Data.Either
+import           Data.Language (defaultLanguageModes)
 import           Data.Set (Set)
 import           Data.Traversable
 import           Data.Typeable
@@ -74,7 +77,7 @@ buildExamples session lang tsDir = do
   files <- globDir1 (compile ("**/*" <> languageExtension lang)) (Path.toString (tsDir </> languageExampleDir lang))
   let paths = Path.relFile <$> files
   trees <- forConcurrently paths $ \file -> pure $ HUnit.testCase (Path.toString file) $ do
-    res <- runTask session (parseFilePath file)
+    res <- runTask session (runParse (parseFilePath file))
     case res of
       Left (SomeException e) -> case cast e of
         -- We have a number of known assignment timeouts, consider these pending specs instead of failing the build.
@@ -120,5 +123,5 @@ knownFailuresForPath tsDir (Just path)
   )
 
 
-parseFilePath :: (Member (Error SomeException) sig, Member Distribute sig, Member Task sig, Member Files sig, Carrier sig m, MonadIO m) => Path.RelFile -> m Bool
-parseFilePath path = readBlob (fileForRelPath path) >>= parseTermBuilder @[] TermShow . pure >>= const (pure True)
+parseFilePath :: (Member (Error SomeException) sig, Member Distribute sig, Member Parse sig, Member Files sig, Member (Reader Config) sig, Carrier sig m, MonadIO m) => Path.RelFile -> m Bool
+parseFilePath path = readBlob (fileForRelPath path) >>= runReader defaultLanguageModes . parseTermBuilder @[] TermShow . pure >>= const (pure True)

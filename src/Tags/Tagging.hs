@@ -2,6 +2,7 @@
 module Tags.Tagging
 ( runTagging
 , Tag(..)
+, Kind(..)
 )
 where
 
@@ -13,46 +14,58 @@ import           Data.Text as T hiding (empty)
 import           Streaming
 import qualified Streaming.Prelude as Streaming
 
-import           Data.Blob
-import           Data.Tag
+import           Data.Language
 import           Data.Term
 import           Source.Loc
 import qualified Source.Source as Source
+import           Tags.Tag
 import           Tags.Taggable
 
 runTagging :: (IsTaggable syntax)
-           => Blob
+           => Language
            -> [Text]
+           -> Source.Source
            -> Term syntax Loc
            -> [Tag]
-runTagging blob symbolsToSummarize
+runTagging lang symbolsToSummarize source
   = Eff.run
   . evalState @[ContextToken] []
   . Streaming.toList_
-  . contextualizing blob symbolsToSummarize
-  . tagging blob
+  . contextualizing source toKind
+  . tagging lang
+  where
+    toKind x = do
+      guard (x `elem` symbolsToSummarize)
+      case x of
+        "Function" -> Just Function
+        "Method"   -> Just Method
+        "Class"    -> Just Class
+        "Module"   -> Just Module
+        "Call"     -> Just Call
+        "Send"     -> Just Call -- Ruby’s Send is considered to be a kind of 'Call'
+        _          -> Nothing
 
-type ContextToken = (Text, Maybe Range)
+type ContextToken = (Text, Range)
 
 contextualizing :: ( Member (State [ContextToken]) sig
                    , Carrier sig m
                    )
-                => Blob
-                -> [Text]
+                => Source.Source
+                -> (Text -> Maybe Kind)
                 -> Stream (Of Token) m a
                 -> Stream (Of Tag) m a
-contextualizing Blob{..} symbolsToSummarize = Streaming.mapMaybeM $ \case
+contextualizing source toKind = Streaming.mapMaybeM $ \case
   Enter x r -> Nothing <$ enterScope (x, r)
   Exit  x r -> Nothing <$ exitScope (x, r)
   Iden iden span docsLiteralRange -> get @[ContextToken] >>= pure . \case
-    ((x, r):("Context", cr):xs) | x `elem` symbolsToSummarize
-      -> Just $ Tag iden x span (fmap fst xs) (firstLine (slice r)) (slice cr)
-    ((x, r):xs) | x `elem` symbolsToSummarize
-      -> Just $ Tag iden x span (fmap fst xs) (firstLine (slice r)) (slice docsLiteralRange)
+    ((x, r):("Context", cr):_) | Just kind <- toKind x
+      -> Just $ Tag iden kind span (firstLine (slice r)) (Just (slice cr))
+    ((x, r):_) | Just kind <- toKind x
+      -> Just $ Tag iden kind span (firstLine (slice r)) (slice <$> docsLiteralRange)
     _ -> Nothing
   where
-    slice = fmap (stripEnd . Source.toText . Source.slice blobSource)
-    firstLine = fmap (T.take 180 . fst . breakOn "\n")
+    slice = stripEnd . Source.toText . Source.slice source
+    firstLine = T.take 180 . fst . breakOn "\n"
 
 enterScope, exitScope :: ( Member (State [ContextToken]) sig
                          , Carrier sig m

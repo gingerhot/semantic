@@ -10,6 +10,10 @@ module Data.Language
   , codeNavLanguages
   , textToLanguage
   , languageToText
+  , PerLanguageModes(..)
+  , defaultLanguageModes
+  , LanguageMode(..)
+  , modeForLanguage
   ) where
 
 import           Data.Aeson
@@ -137,3 +141,25 @@ textToLanguage = \case
   "TSX" -> TSX
   "PHP" -> PHP
   _ -> Unknown
+
+
+newtype PerLanguageModes = PerLanguageModes
+  { pythonMode :: LanguageMode
+  }
+  deriving (Eq, Ord, Show)
+
+defaultLanguageModes :: PerLanguageModes
+defaultLanguageModes = PerLanguageModes
+  { pythonMode = ALaCarte
+  }
+
+data LanguageMode
+  = ALaCarte
+  | Precise
+  deriving (Bounded, Enum, Eq, Ord, Read, Show)
+
+modeForLanguage :: PerLanguageModes -> Language -> LanguageMode
+modeForLanguage modes = \case
+  Java   -> Precise
+  Python -> pythonMode modes
+  _      -> ALaCarte
